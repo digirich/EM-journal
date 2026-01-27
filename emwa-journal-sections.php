@@ -19,6 +19,7 @@ define('EMWAS_URL',  plugin_dir_url(__FILE__));
 require_once EMWAS_DIR.'includes/cpt.php';
 require_once EMWAS_DIR.'includes/section-types.php';
 require_once EMWAS_DIR.'includes/metabox-entries.php';
+require_once EMWAS_DIR.'includes/import-export.php';
 require_once EMWAS_DIR.'includes/vc-sections-cards.php';
 
 /** Front styles */
@@ -28,7 +29,7 @@ add_action('wp_enqueue_scripts', function(){
 
 /** Admin assets */
 add_action('admin_enqueue_scripts', function($hook){
-    $screens = ['toplevel_page_emwa-section-types','post.php','post-new.php'];
+    $screens = ['toplevel_page_emwa-section-types','journal_page_emwa-journal-import-export','post.php','post-new.php'];
     if (!in_array($hook, $screens, true)) return;
 
     wp_enqueue_style('emwas-admin', EMWAS_URL.'assets/admin.css', [], EMWAS_VERSION);
@@ -150,4 +151,7 @@ add_action('wp_ajax_emwas_search_authors', function(){
 
     wp_send_json_success(['items' => $items]);
 });
+
+
+
 

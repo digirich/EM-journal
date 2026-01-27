@@ -90,6 +90,13 @@ Lists all journals grouped by year with client-side filtering.
 - Live citation preview updates as you edit pages, volume/issue, and month/year.
 - Issue and Entry PDFs use the WordPress media picker.
 
+## Import / Export
+- Adds a Journal > Import / Export admin screen.
+- Export downloads a CSV of all journals and entries (one row per entry).
+- Import is a two-step flow: upload CSV, then map headers to fields before running the import.
+- Mapping auto-suggests the best match and can be saved for future uploads.
+- CSV fields supported: journal_title, journal_slug, volume, issue, month_year, full_issue_pdf_url, section_slug, abstract_title, author_names, author_ids, first_page, last_page, doi_url, order, entry_pdf_url, abstract.
+
 ## Assets
 - `assets/style.css` styles cards, section layouts, and the volume list filters.
 - `assets/admin.css` and `assets/admin.js` power the admin UI, entry repeaters, author search, and citation preview.
@@ -109,3 +116,4 @@ Lists all journals grouped by year with client-side filtering.
 - DFlip for flipbook rendering (optional).
 - A `journal_author` CPT exists elsewhere (this plugin references it).
 - Total Theme is assumed for template/layout hooks (remove the filters if not using Total).
+
