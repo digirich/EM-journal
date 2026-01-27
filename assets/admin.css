@@ -1,0 +1,13 @@
+.emwas-entries .wp-editor-wrap { margin-top: 8px; }
+.emwas-entries .small-text { width: 70px; }
+.emwas-author-select { position: relative; }
+.emwas-author-suggest {
+  position: absolute; z-index: 9999; left: 0; right: 0; top: 100%;
+  background: #fff; border: 1px solid #ddd; border-top: none; display: none; max-height: 220px; overflow: auto;
+}
+.emwas-author-suggest .item { padding: 6px 10px; cursor: pointer; }
+.emwas-author-suggest .item:hover { background: #f6f7f7; }
+.emwas-author-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.emwas-tag { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #1f2937; padding: 2px 8px; border-radius: 999px; }
+.emwas-tag .emwas-tag-x { background: transparent; border: 0; cursor: pointer; font-size: 16px; line-height: 16px; }
+.emwas-children thead th { background: #fafafa; }

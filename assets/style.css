@@ -1,0 +1,265 @@
+.container{max-width:1200px;margin:0 auto;padding:0 1rem}
+.my-10{margin-top:2.5rem;margin-bottom:2.5rem}
+.my-6{margin-top:1.5rem;margin-bottom:1.5rem}
+.mb-1{margin-bottom:.25rem}
+.mb-2{margin-bottom:.5rem}
+.mt-4{margin-top:1rem}
+
+.grid{display:grid}
+.gap-6{grid-gap:1.5rem}
+.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
+.sm\:grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
+
+@media(min-width:1024px){
+  .lg\:grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
+  .lg\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .lg\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .lg\:grid-cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .lg\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}
+}
+
+.card{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  background:#fff;
+  border-radius:1rem;
+  box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+  padding:1.25rem;
+  overflow:hidden
+}
+
+.card--row{flex-direction:row;align-items:flex-start;gap:1rem}
+
+.card-media{flex:0 0 120px;max-width:120px}
+.card-media img{width:100%;height:auto;border-radius:.5rem;display:block}
+
+.emwas-card-link{position:absolute;inset:0;z-index:1}
+.emwas-card-body{position:relative;z-index:2}
+
+.text-xl{font-size:1.25rem;line-height:1.75rem}
+.text-sm{font-size:.875rem;line-height:1.25rem}
+.font-semibold{font-weight:600}
+.text-muted{color:#6b7280}
+
+.btn{
+  display:inline-block;
+  padding:.5rem 1rem;
+  border-radius:.5rem;
+  background:#111827;
+  color:#fff;
+  text-decoration:none
+}
+.btn:hover{background:#000}
+
+.btn-outline{
+  display:inline-block;
+  padding:.5rem 1rem;
+  border-radius:.5rem;
+  border:1px solid #111827;
+  color:#111827;
+  text-decoration:none
+}
+.btn-outline:hover{background:#111827;color:#fff}
+
+.typography p{margin:0 0 1rem}
+.emwas-h2{font-size:1.5rem;line-height:2rem;font-weight:700;margin:0 0 .75rem}
+.emwas-h3{font-size:1.125rem;line-height:1.75rem;font-weight:700;margin:0}
+.flex{display:flex}
+.gap-3{gap:.75rem}
+
+/* === EMWA journal card: force image-left layout === */
+.emwas-card {
+  display: grid !important;       /* override flex from .card */
+  grid-template-columns: 120px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.emwas-card .card-media {
+  width: 120px;
+  max-width: 120px;
+}
+
+.emwas-card .card-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: .5rem;
+}
+
+.emwas-card .emwas-card-body {
+  min-width: 0; /* allow text to wrap instead of overflow */
+}
+
+/* Add breathing room between journal cards */
+.emwas-section .grid {
+  gap: 20px; /* increase from 1.5rem (gap-6) to 2rem */
+}
+
+/* Optional: give each card a thin border + background to pop */
+.emwas-card {
+  background: #fff;
+  border: 1px solid #e5e7eb; /* light gray */
+  border-radius: 1rem;
+  box-shadow: 0 4px 10px -2px rgba(0,0,0,.05);
+  padding: 1.25rem;
+}
+/* Force spacing around individual cards */
+.emwas-section .emwas-card {
+  margin-bottom: 20px;           /* 10px all around = 20px total gap between cards */
+  box-sizing: border-box; /* ensure margin doesn't mess with width */
+}
+
+
+/* On small screens, stack vertically */
+@media (max-width: 640px) {
+  .emwas-card {
+    grid-template-columns: 1fr;
+  }
+  .emwas-card .card-media {
+    width: 100%;
+    max-width: none;
+    margin-bottom: 1rem;
+  }
+}
+
+/* ===== Journal Volume List (uses card styling) ===== */
+
+.jvf-wrap { margin-top: 1rem; }
+
+.jvf-filters {
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.jvf-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.jvf-input,
+.jvf-select {
+  min-height: 38px;
+  padding: .4rem .6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+#jvf-search.jvf-input {
+  width: 260px;
+}
+
+.jvf-year-group {
+  /* each group is a column item when cols>1 */
+}
+
+.jvf-item {
+  /* already inherits .card + .emwas-card + .card--row */
+  margin: 10px; /* ensure separation between cards; 10+10 = 20px */
+}
+
+.jvf-item .card-media { width: 120px; max-width: 120px; }
+.jvf-item .card-media img { width: 100%; height: auto; border-radius: .5rem; display: block; }
+
+@media (max-width: 640px) {
+  .jvf-filters-row { gap: 8px; }
+  #jvf-search.jvf-input { width: 100%; }
+  .jvf-item { margin: 8px; }
+}
+/* ===== Journal Volume List Styling ===== */
+
+.journal-volume-filters {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: .75rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.journal-volume-filters input[type="text"],
+.journal-volume-filters select {
+  min-height: 38px;
+  padding: .4rem .6rem;
+  border: 1px solid #d1d5db;
+  border-radius: .5rem;
+  background: #fff;
+  font-size: .9rem;
+}
+
+#jvf-search {
+  width: 260px;
+}
+
+.jvf-year-group {
+  margin-bottom: 2rem;
+}
+
+.jvf-item {
+  margin: 10px 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.jvf-item .jvf-thumb {
+  flex: 0 0 100px;
+  max-width: 100px;
+  border-radius: .5rem;
+  display: block;
+}
+
+.jvf-item .font-semibold {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.jvf-item .text-muted {
+  color: #6b7280;
+  font-size: .875rem;
+}
+
+/* Responsive tweaks */
+@media (max-width: 640px) {
+  .journal-volume-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #jvf-search {
+    width: 100%;
+  }
+  .jvf-item {
+    flex-direction: column;
+  }
+  .jvf-item .jvf-thumb {
+    width: 100%;
+    max-width: none;
+    margin-bottom: .75rem;
+  }
+}
+#jvf-reset {
+  padding: .4rem 1rem;
+  border-radius: .5rem;
+  border: 1px solid #111827;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+}
+#jvf-reset:hover {
+  background: #111827;
+  color: #fff;
+}
