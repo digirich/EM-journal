@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: EMWA Journal – Sections & Cards
- * Description: Journal CPT with Issue meta, Section Types (admin), per-issue repeatable entries, and a WPBakery “Journal Sections Cards” element. Includes Total Theme dynamic template & layout hooks.
- * Version:     1.0.7
+ * Description: Journal CPT with Issue meta, Section Types (admin), per-issue repeatable entries, and a WPBakery “Journal Sections Cards” element. Includes Total Theme dynamic template & layout hooks. ImEx support.
+ * Version:     1.0.8
  * Author:      Rich Barrett
  * License:     GPL-2.0+
  * Text Domain: emwa-journal-sections
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('EMWAS_VERSION', '1.0.7');
+define('EMWAS_VERSION', '1.0.8');
 
 define('EMWAS_FILE', __FILE__);
 define('EMWAS_DIR',  plugin_dir_path(__FILE__));
