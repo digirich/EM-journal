@@ -52,6 +52,8 @@ add_action('admin_enqueue_scripts', function($hook){
         'typesHier' => $types,
         'ajaxUrl'    => admin_url('admin-ajax.php'),
         'nonce'      => wp_create_nonce('emwas_admin'),
+        'importBatch' => defined('EMWAS_IMPORT_BATCH') ? EMWAS_IMPORT_BATCH : 50,
+        'importLogMax' => 200,
     ]);
 });
 
@@ -151,7 +153,6 @@ add_action('wp_ajax_emwas_search_authors', function(){
 
     wp_send_json_success(['items' => $items]);
 });
-
 
 
 

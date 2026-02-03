@@ -10,6 +10,7 @@ const EMWAS_IMPORT_PREVIEW_ROWS = 20;
 const EMWAS_IMPORT_LOG = true;
 const EMWAS_IMPORT_LOG_STORE = true;
 const EMWAS_IMPORT_LOG_MAX = 500;
+const EMWAS_IMPORT_BATCH = 20;
 
 add_action('admin_menu', function(){
     add_submenu_page(
@@ -26,6 +27,9 @@ add_action('admin_post_emwas_export_csv', 'emwas_handle_export_csv');
 add_action('admin_post_emwas_upload_csv', 'emwas_handle_upload_csv');
 add_action('admin_post_emwas_import_csv', 'emwas_handle_import_csv');
 add_action('admin_post_emwas_clear_import_log', 'emwas_handle_clear_import_log');
+add_action('wp_ajax_emwas_import_init', 'emwas_ajax_import_init');
+add_action('wp_ajax_emwas_import_step', 'emwas_ajax_import_step');
+add_action('wp_ajax_emwas_import_cancel', 'emwas_ajax_import_cancel');
 
 function emwas_render_import_export_page(){
     if (!current_user_can('manage_options')) {
@@ -68,7 +72,7 @@ function emwas_render_import_export_page(){
           $auto_map  = ($preview_map !== false) ? $preview_map : emwas_guess_mapping($headers, $saved_map);
           $fields    = emwas_get_import_fields();
         ?>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+        <form id="emwas-import-form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
           <?php wp_nonce_field('emwas_import_csv','emwas_import_nonce'); ?>
           <input type="hidden" name="action" value="emwas_import_csv">
           <input type="hidden" name="token" value="<?php echo esc_attr($token); ?>">
@@ -153,9 +157,15 @@ function emwas_render_import_export_page(){
             <?php endif; ?>
           <?php endif; ?>
 
+          <div id="emwas-import-progress" class="emwas-import-progress" style="display:none">
+            <div class="emwas-progress-bar"><span style="width:0%"></span></div>
+            <div class="emwas-import-status">Preparing import…</div>
+            <div class="emwas-import-log" aria-live="polite"></div>
+          </div>
+
           <p>
             <?php submit_button('Preview', 'secondary', 'emwas_preview', false); ?>
-            <?php submit_button('Run Import', 'primary', 'submit', false); ?>
+            <?php submit_button('Run Import', 'primary', 'emwas_run_import', false); ?>
           </p>
         </form>
       <?php else: ?>
@@ -564,6 +574,38 @@ function emwas_import_log($message, array $context = []){
     }
 }
 
+function emwas_import_default_counts(){
+    return [
+        'rows' => 0,
+        'journals_created' => 0,
+        'entries_added' => 0,
+        'authors_matched' => 0,
+        'authors_missing' => 0,
+        'authors_created' => 0,
+    ];
+}
+
+function emwas_import_session_key($token){
+    return 'emwas_import_session_'.$token;
+}
+
+function emwas_import_session_get($token){
+    $session = $token ? get_transient(emwas_import_session_key($token)) : false;
+    return is_array($session) ? $session : false;
+}
+
+function emwas_import_session_set($token, array $session){
+    if ($token) {
+        set_transient(emwas_import_session_key($token), $session, EMWAS_IMPORT_TOKEN_TTL);
+    }
+}
+
+function emwas_import_session_clear($token){
+    if ($token) {
+        delete_transient(emwas_import_session_key($token));
+    }
+}
+
 function emwas_local_file_from_url($url){
     $uploads = wp_upload_dir();
     $baseurl = rtrim((string)$uploads['baseurl'], '/');
@@ -861,14 +903,7 @@ function emwas_handle_import_csv(){
         $file_headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $file_headers[0]);
     }
 
-    $counts = [
-        'rows' => 0,
-        'journals_created' => 0,
-        'entries_added' => 0,
-        'authors_matched' => 0,
-        'authors_missing' => 0,
-        'authors_created' => 0,
-    ];
+    $counts = emwas_import_default_counts();
 
     $journal_cache = [];
 
@@ -1165,6 +1200,276 @@ function emwas_create_author_from_row($name, $slug, $title, $image_url){
 
     if ($cache_key) $cache[$cache_key] = $new_id;
     return $new_id;
+}
+
+function emwas_ajax_import_init(){
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized'], 403);
+    }
+    if (!isset($_POST['emwas_import_nonce']) || !wp_verify_nonce($_POST['emwas_import_nonce'], 'emwas_import_csv')) {
+        wp_send_json_error(['message' => 'Invalid nonce'], 400);
+    }
+
+    $token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+    if ($token === '') {
+        wp_send_json_error(['message' => 'Missing import token.'], 400);
+    }
+
+    $import_data = get_transient('emwas_import_'.$token);
+    if (!$import_data || empty($import_data['path'])) {
+        wp_send_json_error(['message' => 'Import session expired. Please upload the CSV again.'], 400);
+    }
+
+    $path = $import_data['path'];
+    if (!file_exists($path)) {
+        wp_send_json_error(['message' => 'CSV file not found on server.'], 400);
+    }
+
+    $map = isset($_POST['map']) && is_array($_POST['map'])
+        ? array_map('sanitize_text_field', wp_unslash($_POST['map']))
+        : [];
+    $allowed = array_keys(emwas_get_import_fields());
+    foreach ($map as $header => $field) {
+        if (!$field || !in_array($field, $allowed, true)) {
+            unset($map[$header]);
+        }
+    }
+
+    if (!empty($_POST['save_mapping'])) {
+        update_option('emwas_import_mapping', $map);
+    }
+
+    $fh = fopen($path, 'r');
+    if (!$fh) {
+        wp_send_json_error(['message' => 'Could not open CSV file.'], 400);
+    }
+
+    $file_headers = fgetcsv($fh);
+    if (!$file_headers) {
+        fclose($fh);
+        wp_send_json_error(['message' => 'Invalid CSV file.'], 400);
+    }
+    if (isset($file_headers[0])) {
+        $file_headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $file_headers[0]);
+    }
+
+    $offset = ftell($fh);
+    fclose($fh);
+
+    $bytes_total = @filesize($path);
+    if ($bytes_total === false) $bytes_total = 0;
+
+    $session = [
+        'path' => $path,
+        'file_headers' => $file_headers,
+        'map' => $map,
+        'offset' => $offset,
+        'counts' => emwas_import_default_counts(),
+        'bytes_total' => (int)$bytes_total,
+        'started' => time(),
+    ];
+    emwas_import_session_set($token, $session);
+
+    emwas_import_log('Import session initialized', [
+        'token' => $token,
+        'headers' => count($file_headers),
+        'mapped_fields' => array_values($map),
+    ]);
+
+    $percent = $bytes_total > 0 ? min(100, round(($offset / $bytes_total) * 100, 1)) : 0;
+
+    wp_send_json_success([
+        'token' => $token,
+        'counts' => $session['counts'],
+        'offset' => $offset,
+        'bytes_total' => (int)$bytes_total,
+        'percent' => $percent,
+    ]);
+}
+
+function emwas_ajax_import_step(){
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized'], 403);
+    }
+    if (!isset($_POST['emwas_import_nonce']) || !wp_verify_nonce($_POST['emwas_import_nonce'], 'emwas_import_csv')) {
+        wp_send_json_error(['message' => 'Invalid nonce'], 400);
+    }
+
+    $token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+    if ($token === '') {
+        wp_send_json_error(['message' => 'Missing import token.'], 400);
+    }
+
+    $session = emwas_import_session_get($token);
+    if (!$session || empty($session['path'])) {
+        wp_send_json_error(['message' => 'Import session expired. Please start again.'], 400);
+    }
+
+    $path = $session['path'];
+    if (!file_exists($path)) {
+        wp_send_json_error(['message' => 'CSV file not found on server.'], 400);
+    }
+
+    $map = isset($session['map']) && is_array($session['map']) ? $session['map'] : [];
+    $file_headers = isset($session['file_headers']) && is_array($session['file_headers']) ? $session['file_headers'] : [];
+    if (!$file_headers) {
+        wp_send_json_error(['message' => 'Missing CSV headers in session.'], 400);
+    }
+
+    $offset = isset($session['offset']) ? (int)$session['offset'] : 0;
+    $counts = isset($session['counts']) && is_array($session['counts']) ? $session['counts'] : emwas_import_default_counts();
+
+    $limit = isset($_POST['batch']) ? (int)$_POST['batch'] : EMWAS_IMPORT_BATCH;
+    if ($limit < 1) $limit = EMWAS_IMPORT_BATCH;
+    if ($limit > 200) $limit = 200;
+
+    $fh = fopen($path, 'r');
+    if (!$fh) {
+        wp_send_json_error(['message' => 'Could not open CSV file.'], 400);
+    }
+
+    if ($offset > 0) {
+        fseek($fh, $offset);
+    } else {
+        $file_headers = fgetcsv($fh);
+        if (!$file_headers) {
+            fclose($fh);
+            wp_send_json_error(['message' => 'Invalid CSV file.'], 400);
+        }
+        if (isset($file_headers[0])) {
+            $file_headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $file_headers[0]);
+        }
+        $offset = ftell($fh);
+    }
+
+    $processed = 0;
+    $messages = [];
+    $last = [];
+    $journal_cache = [];
+    $eof = false;
+
+    while ($processed < $limit) {
+        $row = fgetcsv($fh);
+        if ($row === false) {
+            $eof = true;
+            break;
+        }
+
+        $offset = ftell($fh);
+        if (empty(array_filter($row, function($v){ return $v !== null && $v !== ''; }))) {
+            continue;
+        }
+
+        $processed++;
+        $counts['rows']++;
+
+        $data = [];
+        foreach ($file_headers as $i => $h) {
+            $data[$h] = isset($row[$i]) ? $row[$i] : '';
+        }
+
+        $vals = emwas_apply_mapping($data, $map);
+        $journal_id = emwas_get_or_create_journal($vals, $journal_cache, $counts);
+        $entry_added = false;
+
+        if ($journal_id) {
+            emwas_update_journal_meta($journal_id, $vals);
+            $entry_added = emwas_add_entry_from_row($journal_id, $vals, $counts);
+            if ($entry_added) $counts['entries_added']++;
+        }
+
+        $journal_title = isset($vals['journal_title']) ? $vals['journal_title'] : '';
+        $entry_title = isset($vals['abstract_title']) ? $vals['abstract_title'] : '';
+        $section = '';
+        if (!empty($vals['section_slug'])) {
+            $section = $vals['section_slug'];
+        } elseif (!empty($vals['section_label'])) {
+            $section = $vals['section_label'];
+        }
+
+        $msg = 'Row '.$counts['rows'].': ';
+        $msg .= $journal_title !== '' ? $journal_title : '(no journal title)';
+        if ($entry_title !== '') $msg .= ' | '.$entry_title;
+        if ($section !== '') $msg .= ' | '.$section;
+        $messages[] = $msg;
+        if (count($messages) > 8) {
+            array_shift($messages);
+        }
+
+        $last = [
+            'row' => $counts['rows'],
+            'journal' => $journal_title,
+            'entry' => $entry_title,
+            'section' => $section,
+            'entry_added' => $entry_added ? 1 : 0,
+        ];
+    }
+
+    fclose($fh);
+
+    $bytes_total = isset($session['bytes_total']) ? (int)$session['bytes_total'] : 0;
+    if ($bytes_total <= 0) {
+        $bytes_total = @filesize($path);
+        if ($bytes_total === false) $bytes_total = 0;
+    }
+
+    $percent = $bytes_total > 0 ? min(100, round(($offset / $bytes_total) * 100, 1)) : 0;
+
+    $session['offset'] = $offset;
+    $session['counts'] = $counts;
+    $session['bytes_total'] = (int)$bytes_total;
+    $session['file_headers'] = $file_headers;
+    emwas_import_session_set($token, $session);
+
+    $done = $eof;
+    $message = '';
+
+    if ($done) {
+        emwas_import_session_clear($token);
+        delete_transient('emwas_import_'.$token);
+        @unlink($path);
+
+        $message = sprintf(
+            'Import complete. Rows processed: %d. Journals created: %d. Entries added: %d. Authors matched: %d. Authors missing: %d. Authors created: %d.',
+            $counts['rows'],
+            $counts['journals_created'],
+            $counts['entries_added'],
+            $counts['authors_matched'],
+            $counts['authors_missing'],
+            $counts['authors_created']
+        );
+        set_transient('emwas_import_result', $message, EMWAS_IMPORT_TOKEN_TTL);
+        emwas_import_log('Import finished', $counts);
+    }
+
+    wp_send_json_success([
+        'done' => $done,
+        'counts' => $counts,
+        'processed' => $processed,
+        'offset' => $offset,
+        'bytes_total' => (int)$bytes_total,
+        'percent' => $percent,
+        'messages' => $messages,
+        'last' => $last,
+        'message' => $message,
+    ]);
+}
+
+function emwas_ajax_import_cancel(){
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized'], 403);
+    }
+    if (!isset($_POST['emwas_import_nonce']) || !wp_verify_nonce($_POST['emwas_import_nonce'], 'emwas_import_csv')) {
+        wp_send_json_error(['message' => 'Invalid nonce'], 400);
+    }
+
+    $token = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : '';
+    if ($token === '') {
+        wp_send_json_error(['message' => 'Missing import token.'], 400);
+    }
+
+    emwas_import_session_clear($token);
+    wp_send_json_success(['message' => 'Import session cleared.']);
 }
 
 

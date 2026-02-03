@@ -11,3 +11,9 @@
 .emwas-tag { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #1f2937; padding: 2px 8px; border-radius: 999px; }
 .emwas-tag .emwas-tag-x { background: transparent; border: 0; cursor: pointer; font-size: 16px; line-height: 16px; }
 .emwas-children thead th { background: #fafafa; }
+.emwas-import-progress { margin: 12px 0; padding: 12px; border: 1px solid #ccd0d4; background: #fff; }
+.emwas-progress-bar { height: 12px; background: #e5e7eb; border-radius: 8px; overflow: hidden; }
+.emwas-progress-bar > span { display: block; height: 100%; width: 0%; background: #2271b1; transition: width 0.2s ease; }
+.emwas-import-status { margin-top: 8px; font-weight: 600; }
+.emwas-import-log { margin-top: 8px; max-height: 220px; overflow: auto; background: #111827; color: #e5e7eb; padding: 8px; font-family: Consolas, "Courier New", monospace; font-size: 12px; border-radius: 6px; }
+.emwas-import-log .line { white-space: pre-wrap; margin-bottom: 4px; }

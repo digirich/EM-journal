@@ -193,6 +193,143 @@ jQuery(function($){
   // initial
   $('.emwas-entry').each(function(){ updateRowCitation($(this)); });
 
+  /* ---------- CSV Import (AJAX progress) ---------- */
+  const $importForm = $('#emwas-import-form');
+  if ($importForm.length && ajaxUrl) {
+    let submitMode = 'import';
+    const $progress = $('#emwas-import-progress');
+    const $bar = $progress.find('.emwas-progress-bar span');
+    const $status = $progress.find('.emwas-import-status');
+    const $log = $progress.find('.emwas-import-log');
+    const importBatch = (window.EMWAS && parseInt(EMWAS.importBatch || 0, 10)) || 50;
+    const importLogMax = (window.EMWAS && parseInt(EMWAS.importLogMax || 0, 10)) || 200;
+
+    function addLogLine(text){
+      if (!$log.length) return;
+      const line = $('<div class="line"></div>').text(text);
+      $log.append(line);
+      const lines = $log.find('.line');
+      if (lines.length > importLogMax) {
+        lines.slice(0, lines.length - importLogMax).remove();
+      }
+      $log.scrollTop($log[0].scrollHeight);
+    }
+
+    function setStatusFromData(data){
+      const c = data.counts || {};
+      const parts = [
+        'Rows: ' + (c.rows || 0),
+        'Journals: ' + (c.journals_created || 0),
+        'Entries: ' + (c.entries_added || 0),
+        'Authors matched: ' + (c.authors_matched || 0),
+        'Authors created: ' + (c.authors_created || 0),
+        'Missing: ' + (c.authors_missing || 0)
+      ];
+      if (typeof data.percent === 'number') {
+        parts.push('Progress: ' + data.percent + '%');
+      }
+      $status.text(parts.join(' | '));
+    }
+
+    function updateProgressBar(percent){
+      if (!$bar.length) return;
+      const pct = Math.max(0, Math.min(100, parseFloat(percent || 0)));
+      $bar.css('width', pct + '%');
+    }
+
+    $importForm.on('click', 'button', function(){
+      const name = $(this).attr('name') || '';
+      submitMode = (name === 'emwas_preview') ? 'preview' : 'import';
+    });
+
+    $importForm.on('submit', function(e){
+      if (submitMode === 'preview') return;
+      if (!ajaxUrl) return;
+      e.preventDefault();
+
+      const importNonce = $importForm.find('input[name="emwas_import_nonce"]').val() || '';
+      const token = $importForm.find('input[name="token"]').val() || '';
+      if (!importNonce || !token) {
+        $status.text('Missing import token or nonce. Please reload the page.');
+        return;
+      }
+
+      $progress.show();
+      $status.text('Starting import…');
+      $log.empty();
+
+      const formData = $importForm.serialize();
+
+      // Disable form to prevent double-submit
+      $importForm.find('select, input, button').prop('disabled', true);
+
+      $.post(ajaxUrl, formData + '&action=emwas_import_init', function(resp){
+        if (!resp || !resp.success) {
+          const msg = resp && resp.data && resp.data.message ? resp.data.message : 'Import init failed.';
+          $status.text(msg);
+          addLogLine(msg);
+          $importForm.find('select, input, button').prop('disabled', false);
+          return;
+        }
+
+        setStatusFromData(resp.data || {});
+        updateProgressBar(resp.data && resp.data.percent ? resp.data.percent : 0);
+
+        function step(){
+          $.post(ajaxUrl, {
+            action: 'emwas_import_step',
+            token: token,
+            batch: importBatch,
+            emwas_import_nonce: importNonce
+          }, function(stepResp){
+            if (!stepResp || !stepResp.success) {
+              const msg = stepResp && stepResp.data && stepResp.data.message ? stepResp.data.message : 'Import step failed.';
+              $status.text(msg);
+              addLogLine(msg);
+              $importForm.find('select, input, button').prop('disabled', false);
+              return;
+            }
+
+            const data = stepResp.data || {};
+            setStatusFromData(data);
+            updateProgressBar(data.percent || 0);
+
+            if (Array.isArray(data.messages)) {
+              data.messages.forEach(function(m){ addLogLine(m); });
+            }
+
+            if (data.last && (data.last.journal || data.last.entry)) {
+              const last = data.last;
+              let line = 'Last: ';
+              if (last.journal) line += last.journal;
+              if (last.entry) line += (last.journal ? ' | ' : '') + last.entry;
+              if (last.section) line += ' | ' + last.section;
+              addLogLine(line);
+            }
+
+            if (data.done) {
+              if (data.message) addLogLine(data.message);
+              $status.text('Import complete.');
+              updateProgressBar(100);
+              $importForm.find('select, input, button').prop('disabled', false);
+              return;
+            }
+
+            setTimeout(step, 100);
+          }, 'json').fail(function(){
+            $status.text('Import step failed (network error).');
+            $importForm.find('select, input, button').prop('disabled', false);
+          });
+        }
+
+        step();
+      }, 'json').fail(function(){
+        $status.text('Import init failed (network error).');
+        $importForm.find('select, input, button').prop('disabled', false);
+      });
+    });
+  }
+
   /* ---------- Issue meta (unchanged) ---------- */
   $(document).on('click','.emwas-issue-upload', function(e){
     e.preventDefault();
