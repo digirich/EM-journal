@@ -125,18 +125,29 @@ function emwas_get_import_fields(){
         'journal_slug'         => 'Journal Slug',
         'volume'               => 'Volume',
         'issue'                => 'Issue',
+        'journal_month'        => 'Journal Month (1-12 or legacy 110/113/116/119)',
+        'journal_year'         => 'Journal Year (YYYY)',
         'month_year'           => 'Month/Year (YYYY-MM)',
         'full_issue_pdf_url'   => 'Full Issue PDF URL',
         'section_slug'         => 'Section Slug',
+        'section_label'        => 'Section Label',
         'abstract_title'       => 'Abstract Title',
         'author_names'         => 'Author Names (semicolon separated)',
         'author_ids'           => 'Author IDs (comma/semicolon separated)',
+        'author_slugs'         => 'Author Slugs (semicolon separated)',
+        'author_titles'        => 'Author Titles (semicolon separated)',
+        'author_image_urls'    => 'Author Image URLs (semicolon separated)',
         'first_page'           => 'First Page',
         'last_page'            => 'Last Page',
         'doi_url'              => 'DOI URL',
         'order'                => 'Order',
         'entry_pdf_url'        => 'Entry PDF URL',
         'abstract'             => 'Abstract Text',
+        'full_text'            => 'Full Text (HTML)',
+        'keywords'             => 'Keywords',
+        'references'           => 'References',
+        'source_journal_id'    => 'Source Journal ID',
+        'source_article_id'    => 'Source Article ID',
     ];
 }
 
@@ -150,20 +161,31 @@ function emwas_guess_mapping(array $headers, array $saved_map = []){
     $aliases = [
         'journal_title'      => ['journaltitle','issuetitle','title','journal'],
         'journal_slug'       => ['journalslug','issueslug','slug'],
-        'volume'             => ['volume','vol'],
-        'issue'              => ['issue','iss','number'],
+        'volume'             => ['volume','vol','journalvolume'],
+        'issue'              => ['issue','iss','number','journalissue'],
+        'journal_month'      => ['journalmonth','monthnum','monthnumber'],
+        'journal_year'       => ['journalyear','year'],
         'month_year'         => ['monthyear','monthyear','month','yearmonth','date'],
-        'full_issue_pdf_url' => ['fullissuepdf','issuepdf','issuepdfurl','fullissuepdfurl'],
+        'full_issue_pdf_url' => ['fullissuepdf','issuepdf','issuepdfurl','fullissuepdfurl','issuepdffile'],
         'section_slug'       => ['section','sectionslug','sectiontype','section_slug'],
+        'section_label'      => ['sectionlabel','sectionname','articletype'],
         'abstract_title'     => ['abstracttitle','articletitle','entrytitle'],
         'author_names'       => ['authornames','authors','author'],
         'author_ids'         => ['authorids','authorid'],
+        'author_slugs'       => ['authorslugs','author_slug','authorslug'],
+        'author_titles'      => ['authortitles','author_title','authortitle','jobtitle','position'],
+        'author_image_urls'  => ['authorimage','authorimageurl','authorimageurls','author_photo','authorphoto'],
         'first_page'         => ['firstpage','startpage'],
         'last_page'          => ['lastpage','endpage'],
         'doi_url'            => ['doi','doiurl'],
         'order'              => ['order','sort'],
-        'entry_pdf_url'      => ['entrypdf','articlepdf','entrypdfurl','articlepdfurl'],
-        'abstract'           => ['abstract','summary'],
+        'entry_pdf_url'      => ['entrypdf','articlepdf','entrypdfurl','articlepdfurl','articlepdffile'],
+        'abstract'           => ['abstract','summary','abstractclean'],
+        'full_text'          => ['fulltext','fulltextclean'],
+        'keywords'           => ['keywords'],
+        'references'         => ['references','refs'],
+        'source_journal_id'  => ['journalid','sourcejournalid'],
+        'source_article_id'  => ['articleid','sourcearticleid'],
     ];
 
     $map = [];
@@ -214,14 +236,26 @@ function emwas_handle_export_csv(){
         'month_year',
         'full_issue_pdf_url',
         'section_slug',
+        'section_label',
+        'section_parent_slug',
+        'section_parent_label',
         'abstract_title',
         'author_names',
+        'author_ids',
+        'author_slugs',
+        'author_titles',
+        'author_image_urls',
         'first_page',
         'last_page',
         'doi_url',
         'order',
         'entry_pdf_url',
         'abstract',
+        'full_text',
+        'keywords',
+        'references',
+        'source_journal_id',
+        'source_article_id',
     ];
 
     $journals = get_posts([
@@ -249,19 +283,31 @@ function emwas_handle_export_csv(){
             'issue'              => get_post_meta($post_id, '_emwas_issue', true),
             'month_year'         => get_post_meta($post_id, '_emwas_month_year', true),
             'full_issue_pdf_url' => ($fid = (int)get_post_meta($post_id, '_emwas_full_issue_file_id', true)) ? wp_get_attachment_url($fid) : '',
+            'source_journal_id'  => get_post_meta($post_id, '_emwas_source_journal_id', true),
         ];
 
         if (!$entries) {
             $row = $row_base + [
-                'section_slug'  => '',
-                'abstract_title'=> '',
-                'author_names'  => '',
-                'first_page'    => '',
-                'last_page'     => '',
-                'doi_url'       => '',
-                'order'         => '',
-                'entry_pdf_url' => '',
-                'abstract'      => '',
+                'section_slug'         => '',
+                'section_label'        => '',
+                'section_parent_slug'  => '',
+                'section_parent_label' => '',
+                'abstract_title'       => '',
+                'author_names'         => '',
+                'author_ids'           => '',
+                'author_slugs'         => '',
+                'author_titles'        => '',
+                'author_image_urls'    => '',
+                'first_page'           => '',
+                'last_page'            => '',
+                'doi_url'              => '',
+                'order'                => '',
+                'entry_pdf_url'        => '',
+                'abstract'             => '',
+                'full_text'            => '',
+                'keywords'             => '',
+                'references'           => '',
+                'source_article_id'    => '',
             ];
             fputcsv($out, emwas_row_to_csv($columns, $row));
             continue;
@@ -269,20 +315,33 @@ function emwas_handle_export_csv(){
 
         foreach ($entries as $e) {
             $authors = emwas_author_names_from_ids($e['author_ids'] ?? []);
+            $author_data = emwas_get_author_export_data($e['author_ids'] ?? []);
             $entry_pdf_url = '';
             if (!empty($e['file_id'])) {
                 $entry_pdf_url = wp_get_attachment_url((int)$e['file_id']);
             }
+            $section_meta = emwas_get_section_meta_from_slug($e['section'] ?? '');
             $row = $row_base + [
-                'section_slug'   => $e['section'] ?? '',
-                'abstract_title' => $e['abstract_title'] ?? '',
-                'author_names'   => $authors,
-                'first_page'     => $e['first_page'] ?? '',
-                'last_page'      => $e['last_page'] ?? '',
-                'doi_url'        => $e['doi_url'] ?? '',
-                'order'          => $e['order'] ?? '',
-                'entry_pdf_url'  => $entry_pdf_url ?: '',
-                'abstract'       => $e['content'] ?? '',
+                'section_slug'         => $e['section'] ?? '',
+                'section_label'        => $section_meta['label'],
+                'section_parent_slug'  => $section_meta['parent_slug'],
+                'section_parent_label' => $section_meta['parent_label'],
+                'abstract_title'       => $e['abstract_title'] ?? '',
+                'author_names'         => $authors,
+                'author_ids'           => $author_data['ids'],
+                'author_slugs'         => $author_data['slugs'],
+                'author_titles'        => $author_data['titles'],
+                'author_image_urls'    => $author_data['image_urls'],
+                'first_page'           => $e['first_page'] ?? '',
+                'last_page'            => $e['last_page'] ?? '',
+                'doi_url'              => $e['doi_url'] ?? '',
+                'order'                => $e['order'] ?? '',
+                'entry_pdf_url'        => $entry_pdf_url ?: '',
+                'abstract'             => $e['content'] ?? '',
+                'full_text'            => $e['full_text'] ?? '',
+                'keywords'             => $e['keywords'] ?? '',
+                'references'           => $e['references'] ?? '',
+                'source_article_id'    => $e['source_article_id'] ?? '',
             ];
             fputcsv($out, emwas_row_to_csv($columns, $row));
         }
@@ -312,6 +371,144 @@ function emwas_author_names_from_ids($ids){
         }
     }
     return implode('; ', $names);
+}
+
+function emwas_get_author_export_data($ids){
+    if (!is_array($ids) || empty($ids)) {
+        return [
+            'ids' => '',
+            'slugs' => '',
+            'titles' => '',
+            'image_urls' => '',
+        ];
+    }
+
+    $ids_out = [];
+    $slugs = [];
+    $titles = [];
+    $images = [];
+
+    foreach ($ids as $aid) {
+        $aid = (int)$aid;
+        if ($aid <= 0) continue;
+        $p = get_post($aid);
+        if (!$p || $p->post_type !== 'journal_author') continue;
+
+        $ids_out[] = (string)$aid;
+        $slugs[] = $p->post_name;
+        $titles[] = emwas_get_author_title_meta($aid);
+        $thumb_id = get_post_thumbnail_id($aid);
+        $images[] = $thumb_id ? wp_get_attachment_url($thumb_id) : '';
+    }
+
+    return [
+        'ids' => implode('; ', $ids_out),
+        'slugs' => implode('; ', $slugs),
+        'titles' => implode('; ', $titles),
+        'image_urls' => implode('; ', $images),
+    ];
+}
+
+function emwas_get_author_title_meta($author_id){
+    $keys = ['author_title', 'job_title', 'position', 'title'];
+    foreach ($keys as $key) {
+        $val = get_post_meta($author_id, $key, true);
+        if (is_string($val) && $val !== '') {
+            return $val;
+        }
+    }
+    return '';
+}
+
+function emwas_normalize_media_url($raw){
+    $raw = trim((string)$raw);
+    if ($raw === '') return '';
+
+    if (preg_match('#^https?://#i', $raw)) {
+        return $raw;
+    }
+
+    if ($raw[0] === '/') {
+        return home_url($raw);
+    }
+
+    return home_url('/'.ltrim($raw, '/'));
+}
+
+function emwas_get_section_maps(){
+    static $cache = null;
+    if (is_array($cache)) return $cache;
+
+    $types = function_exists('emwas_get_section_types_hier') ? emwas_get_section_types_hier() : [];
+    $slug_to_label = [];
+    $label_to_slug = [];
+    $slug_to_parent = [];
+    $parent_label = [];
+
+    foreach ($types as $p) {
+        $pslug = $p['slug'] ?? '';
+        $plabel = $p['label'] ?? '';
+        if ($pslug && $plabel) {
+            $slug_to_label[$pslug] = $plabel;
+            $label_to_slug[strtolower($plabel)] = $pslug;
+            $parent_label[$pslug] = $plabel;
+        }
+        if (!empty($p['children']) && is_array($p['children'])) {
+            foreach ($p['children'] as $ch) {
+                $cslug = $ch['slug'] ?? '';
+                $clabel = $ch['label'] ?? '';
+                if ($cslug && $clabel) {
+                    $slug_to_label[$cslug] = $clabel;
+                    $label_to_slug[strtolower($clabel)] = $cslug;
+                    $slug_to_parent[$cslug] = $pslug;
+                }
+            }
+        }
+    }
+
+    $cache = [
+        'slug_to_label' => $slug_to_label,
+        'label_to_slug' => $label_to_slug,
+        'slug_to_parent' => $slug_to_parent,
+        'parent_label' => $parent_label,
+    ];
+
+    return $cache;
+}
+
+function emwas_get_section_meta_from_slug($slug){
+    $slug = sanitize_title((string)$slug);
+    if ($slug === '') {
+        return [
+            'label' => '',
+            'parent_slug' => '',
+            'parent_label' => '',
+        ];
+    }
+
+    $maps = emwas_get_section_maps();
+    $label = $maps['slug_to_label'][$slug] ?? '';
+    $parent_slug = $maps['slug_to_parent'][$slug] ?? '';
+    $parent_label = $parent_slug ? ($maps['parent_label'][$parent_slug] ?? '') : '';
+
+    return [
+        'label' => $label,
+        'parent_slug' => $parent_slug,
+        'parent_label' => $parent_label,
+    ];
+}
+
+function emwas_section_slug_from_label($label){
+    $label = trim((string)$label);
+    if ($label === '') return '';
+
+    $maps = emwas_get_section_maps();
+    $key = strtolower($label);
+    if (isset($maps['label_to_slug'][$key])) {
+        return $maps['label_to_slug'][$key];
+    }
+
+    return sanitize_title($label);
 }
 
 function emwas_handle_upload_csv(){
@@ -415,6 +612,7 @@ function emwas_handle_import_csv(){
         'entries_added' => 0,
         'authors_matched' => 0,
         'authors_missing' => 0,
+        'authors_created' => 0,
     ];
 
     $journal_cache = [];
@@ -446,12 +644,13 @@ function emwas_handle_import_csv(){
     @unlink($path);
 
     $msg = sprintf(
-        'Import complete. Rows processed: %d. Journals created: %d. Entries added: %d. Authors matched: %d. Authors missing: %d.',
+        'Import complete. Rows processed: %d. Journals created: %d. Entries added: %d. Authors matched: %d. Authors missing: %d. Authors created: %d.',
         $counts['rows'],
         $counts['journals_created'],
         $counts['entries_added'],
         $counts['authors_matched'],
-        $counts['authors_missing']
+        $counts['authors_missing'],
+        $counts['authors_created']
     );
     set_transient('emwas_import_result', $msg, EMWAS_IMPORT_TOKEN_TTL);
 
@@ -511,20 +710,29 @@ function emwas_update_journal_meta($post_id, array $vals){
     if (isset($vals['issue']) && $vals['issue'] !== '') {
         update_post_meta($post_id, '_emwas_issue', (int)$vals['issue']);
     }
-    if (isset($vals['month_year']) && $vals['month_year'] !== '') {
-        $my = preg_replace('/^(\d{4})-(\d{2}).*$/','$1-$2', $vals['month_year']);
+    $my = emwas_resolve_month_year($vals);
+    if ($my !== '') {
         update_post_meta($post_id, '_emwas_month_year', $my);
     }
     if (isset($vals['full_issue_pdf_url']) && $vals['full_issue_pdf_url'] !== '') {
-        $fid = attachment_url_to_postid(esc_url_raw($vals['full_issue_pdf_url']));
+        $url = emwas_normalize_media_url($vals['full_issue_pdf_url']);
+        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
         if ($fid) {
             update_post_meta($post_id, '_emwas_full_issue_file_id', (int)$fid);
         }
     }
+    if (isset($vals['source_journal_id']) && $vals['source_journal_id'] !== '') {
+        update_post_meta($post_id, '_emwas_source_journal_id', sanitize_text_field($vals['source_journal_id']));
+    }
 }
 
 function emwas_add_entry_from_row($post_id, array $vals, array &$counts){
-    $section = isset($vals['section_slug']) ? sanitize_title($vals['section_slug']) : '';
+    $section = '';
+    if (!empty($vals['section_slug'])) {
+        $section = sanitize_title($vals['section_slug']);
+    } elseif (!empty($vals['section_label'])) {
+        $section = emwas_section_slug_from_label($vals['section_label']);
+    }
     if (!$section) return false;
 
     $entries = get_post_meta($post_id, '_emwas_entries', true);
@@ -537,6 +745,10 @@ function emwas_add_entry_from_row($post_id, array $vals, array &$counts){
     }
 
     $author_ids = [];
+    $author_titles = emwas_split_list($vals['author_titles'] ?? '');
+    $author_images = emwas_split_list($vals['author_image_urls'] ?? '');
+    $author_slugs = emwas_split_list($vals['author_slugs'] ?? '');
+
     if (!empty($vals['author_ids'])) {
         $ids = preg_split('/[;,|]+/', $vals['author_ids']);
         foreach ($ids as $id) {
@@ -549,18 +761,33 @@ function emwas_add_entry_from_row($post_id, array $vals, array &$counts){
                 }
             }
         }
-    } elseif (!empty($vals['author_names'])) {
-        $names = preg_split('/[;|]+/', $vals['author_names']);
-        if (count($names) === 1) {
-            $names = preg_split('/\s*,\s*/', $vals['author_names']);
-        }
-        foreach ($names as $name) {
-            $name = trim($name);
-            if ($name === '') continue;
-            $p = get_page_by_title($name, OBJECT, 'journal_author');
+    } elseif (!empty($vals['author_names']) || !empty($vals['author_slugs'])) {
+        $names = emwas_split_author_names($vals['author_names'] ?? '');
+        $max = max(count($names), count($author_slugs));
+
+        for ($i = 0; $i < $max; $i++) {
+            $name = isset($names[$i]) ? trim($names[$i]) : '';
+            $slug = isset($author_slugs[$i]) ? sanitize_title($author_slugs[$i]) : '';
+            if ($name === '' && $slug === '') continue;
+
+            $p = null;
+            if ($slug) {
+                $p = get_page_by_path($slug, OBJECT, 'journal_author');
+            }
+            if (!$p && $name !== '') {
+                $p = get_page_by_title($name, OBJECT, 'journal_author');
+            }
+
             if ($p) {
                 $author_ids[] = $p->ID;
                 $counts['authors_matched']++;
+                continue;
+            }
+
+            $new_id = emwas_create_author_from_row($name, $slug, $author_titles[$i] ?? '', $author_images[$i] ?? '');
+            if ($new_id) {
+                $author_ids[] = $new_id;
+                $counts['authors_created']++;
             } else {
                 $counts['authors_missing']++;
             }
@@ -577,16 +804,103 @@ function emwas_add_entry_from_row($post_id, array $vals, array &$counts){
         'first_page'     => isset($vals['first_page']) ? sanitize_text_field($vals['first_page']) : '',
         'last_page'      => isset($vals['last_page']) ? sanitize_text_field($vals['last_page']) : '',
         'content'        => isset($vals['abstract']) ? sanitize_textarea_field($vals['abstract']) : '',
+        'full_text'      => isset($vals['full_text']) ? wp_kses_post($vals['full_text']) : '',
+        'keywords'       => isset($vals['keywords']) ? sanitize_text_field($vals['keywords']) : '',
+        'references'     => isset($vals['references']) ? wp_kses_post($vals['references']) : '',
+        'source_article_id' => isset($vals['source_article_id']) ? sanitize_text_field($vals['source_article_id']) : '',
     ];
 
+    if ($entry['content'] === '' && !empty($entry['full_text'])) {
+        $entry['content'] = wp_strip_all_tags($entry['full_text']);
+    }
+
     if (!empty($vals['entry_pdf_url'])) {
-        $fid = attachment_url_to_postid(esc_url_raw($vals['entry_pdf_url']));
+        $url = emwas_normalize_media_url($vals['entry_pdf_url']);
+        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
         if ($fid) $entry['file_id'] = (int)$fid;
     }
 
     $entries[] = $entry;
     update_post_meta($post_id, '_emwas_entries', $entries);
     return true;
+}
+
+function emwas_resolve_month_year(array $vals){
+    if (isset($vals['month_year']) && $vals['month_year'] !== '') {
+        return preg_replace('/^(\d{4})-(\d{2}).*$/', '$1-$2', $vals['month_year']);
+    }
+
+    $year = isset($vals['journal_year']) ? (int)$vals['journal_year'] : 0;
+    $month_raw = isset($vals['journal_month']) ? (string)$vals['journal_month'] : '';
+    $month = (int)preg_replace('/[^0-9]/', '', $month_raw);
+    if ($month <= 0 || $year <= 0) return '';
+
+    $legacy_map = [
+        110 => 1,
+        113 => 4,
+        116 => 7,
+        119 => 10,
+    ];
+    if (isset($legacy_map[$month])) {
+        $month = $legacy_map[$month];
+    } elseif ($month > 12 && $month < 100) {
+        return '';
+    } elseif ($month > 99) {
+        $mod = $month % 100;
+        if ($mod >= 1 && $mod <= 12) {
+            $month = $mod;
+        }
+    }
+
+    if ($month < 1 || $month > 12) return '';
+    return sprintf('%04d-%02d', $year, $month);
+}
+
+function emwas_split_list($val){
+    $val = trim((string)$val);
+    if ($val === '') return [];
+    $parts = preg_split('/\s*;\s*/', $val);
+    return array_values(array_filter(array_map('trim', $parts), function($v){ return $v !== ''; }));
+}
+
+function emwas_split_author_names($val){
+    $val = trim((string)$val);
+    if ($val === '') return [];
+    $names = preg_split('/\s*;\s*/', $val);
+    if (count($names) === 1) {
+        $names = preg_split('/\s*,\s*/', $val);
+    }
+    return array_values(array_filter(array_map('trim', $names), function($v){ return $v !== ''; }));
+}
+
+function emwas_create_author_from_row($name, $slug, $title, $image_url){
+    static $cache = [];
+    $cache_key = $slug ?: $name;
+    if ($cache_key && isset($cache[$cache_key])) return $cache[$cache_key];
+
+    $post_data = [
+        'post_title'  => $name ?: $slug,
+        'post_name'   => $slug ?: '',
+        'post_type'   => 'journal_author',
+        'post_status' => 'publish',
+    ];
+    $new_id = wp_insert_post($post_data);
+    if (is_wp_error($new_id) || !$new_id) return 0;
+
+    if ($title !== '') {
+        update_post_meta($new_id, 'author_title', sanitize_text_field($title));
+    }
+
+    if ($image_url !== '') {
+        $url = emwas_normalize_media_url($image_url);
+        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
+        if ($fid) {
+            set_post_thumbnail($new_id, $fid);
+        }
+    }
+
+    if ($cache_key) $cache[$cache_key] = $new_id;
+    return $new_id;
 }
 
 
