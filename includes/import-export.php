@@ -11,6 +11,9 @@ const EMWAS_IMPORT_LOG = true;
 const EMWAS_IMPORT_LOG_STORE = true;
 const EMWAS_IMPORT_LOG_MAX = 500;
 const EMWAS_IMPORT_BATCH = 20;
+const EMWAS_IMPORT_PDF_COVER = true;
+const EMWAS_IMPORT_PDF_COVER_FORCE = false;
+const EMWAS_IMPORT_PDF_COVER_DPI = 200;
 
 add_action('admin_menu', function(){
     add_submenu_page(
@@ -621,6 +624,133 @@ function emwas_local_file_from_url($url){
     return file_exists($file) ? $file : '';
 }
 
+function emwas_file_to_url($file_path){
+    $uploads = wp_upload_dir();
+    $basedir = rtrim((string)$uploads['basedir'], DIRECTORY_SEPARATOR);
+    $baseurl = rtrim((string)$uploads['baseurl'], '/');
+    if ($basedir === '' || $baseurl === '') return '';
+
+    $path = str_replace('\\', '/', $file_path);
+    $base = str_replace('\\', '/', $basedir);
+    if (strpos($path, $base) !== 0) return '';
+    $rel = ltrim(substr($path, strlen($base)), '/');
+    if ($rel === '') return '';
+    return $baseurl.'/'.$rel;
+}
+
+function emwas_best_pdf_preview_path($pdf_attachment_id){
+    $meta = wp_get_attachment_metadata($pdf_attachment_id);
+    if (!is_array($meta) || empty($meta['sizes'])) return '';
+    $sizes = $meta['sizes'];
+    $best = null;
+    foreach ($sizes as $size) {
+        if (empty($size['file'])) continue;
+        if (!$best) {
+            $best = $size;
+            continue;
+        }
+        $w = isset($size['width']) ? (int)$size['width'] : 0;
+        $bw = isset($best['width']) ? (int)$best['width'] : 0;
+        if ($w > $bw) {
+            $best = $size;
+        }
+    }
+    if (!$best || empty($best['file'])) return '';
+
+    $pdf_path = get_attached_file($pdf_attachment_id);
+    if (!$pdf_path || !file_exists($pdf_path)) return '';
+    $preview = trailingslashit(dirname($pdf_path)).$best['file'];
+    return file_exists($preview) ? $preview : '';
+}
+
+function emwas_create_cover_from_pdf($pdf_attachment_id, $post_id){
+    $pdf_path = get_attached_file($pdf_attachment_id);
+    if (!$pdf_path || !file_exists($pdf_path)) {
+        emwas_import_log('PDF not found for cover', ['pdf_id' => $pdf_attachment_id]);
+        return 0;
+    }
+
+    // If WordPress already generated a PDF preview image, use it.
+    $preview = emwas_best_pdf_preview_path($pdf_attachment_id);
+    if ($preview) {
+        $preview_url = emwas_file_to_url($preview);
+        $existing_id = $preview_url ? attachment_url_to_postid($preview_url) : 0;
+        if ($existing_id) return (int)$existing_id;
+
+        $new_id = emwas_create_attachment_from_file($preview, $post_id, 'Journal cover');
+        if ($new_id) return (int)$new_id;
+    }
+
+    // Fallback: render first page with Imagick, if available.
+    if (!class_exists('Imagick')) {
+        emwas_import_log('Imagick unavailable; cannot render PDF cover', ['pdf_id' => $pdf_attachment_id]);
+        return 0;
+    }
+
+    try {
+        $imagick = new Imagick();
+        $imagick->setResolution(EMWAS_IMPORT_PDF_COVER_DPI, EMWAS_IMPORT_PDF_COVER_DPI);
+        $imagick->readImage($pdf_path.'[0]');
+        $imagick->setImageFormat('jpeg');
+        $imagick->setImageCompressionQuality(85);
+        $imagick->setImageBackgroundColor('white');
+        if (method_exists($imagick, 'mergeImageLayers') && defined('Imagick::LAYERMETHOD_FLATTEN')) {
+            $imagick = $imagick->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+        }
+
+        $dir = rtrim((string)dirname($pdf_path), DIRECTORY_SEPARATOR);
+        if ($dir === '') return 0;
+        $basename = pathinfo($pdf_path, PATHINFO_FILENAME);
+        $filename = wp_unique_filename($dir, $basename.'-cover.jpg');
+        $dest = $dir.DIRECTORY_SEPARATOR.$filename;
+
+        $imagick->writeImage($dest);
+        $imagick->clear();
+        $imagick->destroy();
+
+        if (!file_exists($dest)) {
+            emwas_import_log('Failed to write PDF cover image', ['pdf_id' => $pdf_attachment_id]);
+            return 0;
+        }
+
+        $new_id = emwas_create_attachment_from_file($dest, $post_id, 'Journal cover');
+        if ($new_id) return (int)$new_id;
+    } catch (Exception $e) {
+        emwas_import_log('PDF cover render failed', ['pdf_id' => $pdf_attachment_id, 'error' => $e->getMessage()]);
+        return 0;
+    }
+
+    return 0;
+}
+
+function emwas_set_journal_cover_from_pdf($post_id, $pdf_attachment_id){
+    if (!EMWAS_IMPORT_PDF_COVER) return 0;
+    if (!$post_id || !$pdf_attachment_id) return 0;
+
+    static $attempted = [];
+    if (isset($attempted[$post_id])) return 0;
+    $attempted[$post_id] = true;
+
+    $existing = get_post_thumbnail_id($post_id);
+    if ($existing && !EMWAS_IMPORT_PDF_COVER_FORCE) {
+        return (int)$existing;
+    }
+
+    $cover_id = emwas_create_cover_from_pdf($pdf_attachment_id, $post_id);
+    if ($cover_id) {
+        set_post_thumbnail($post_id, $cover_id);
+        update_post_meta($post_id, '_emwas_cover_image_id', (int)$cover_id);
+        emwas_import_log('Set journal cover from PDF', [
+            'post_id' => $post_id,
+            'cover_id' => $cover_id,
+            'pdf_id' => $pdf_attachment_id,
+        ]);
+        return (int)$cover_id;
+    }
+
+    return 0;
+}
+
 function emwas_create_attachment_from_file($file_path, $post_id, $desc = ''){
     if ($file_path === '' || !file_exists($file_path)) return 0;
 
@@ -860,6 +990,16 @@ function emwas_read_csv_headers($path){
     return [$headers, $sample ?: []];
 }
 
+function emwas_preview_value($val){
+    $val = trim((string)$val);
+    if ($val === '') return '';
+    $val = preg_replace('/\s+/', ' ', $val);
+    if (mb_strlen($val) > 120) {
+        $val = mb_substr($val, 0, 120).'...';
+    }
+    return $val;
+}
+
 function emwas_handle_import_csv(){
     if (!current_user_can('manage_options')) {
         wp_die('Unauthorized');
@@ -1023,6 +1163,7 @@ function emwas_update_journal_meta($post_id, array $vals){
         $fid = emwas_ensure_attachment_id($vals['full_issue_pdf_url'], $post_id, 'Full issue PDF');
         if ($fid) {
             update_post_meta($post_id, '_emwas_full_issue_file_id', (int)$fid);
+            emwas_set_journal_cover_from_pdf($post_id, $fid);
         }
     }
     if (isset($vals['source_journal_id']) && $vals['source_journal_id'] !== '') {
