@@ -524,6 +524,16 @@ function emwas_normalize_media_url($raw){
         return $raw;
     }
 
+    // If CSV uses "/media/..." paths, map them to uploads.
+    // Current FTP layout: wp-content/uploads/Media/media/...
+    if (strpos($raw, '/media/') === 0) {
+        $uploads = wp_upload_dir();
+        $baseurl = rtrim((string)$uploads['baseurl'], '/');
+        if ($baseurl !== '') {
+            return $baseurl.'/Media'.$raw;
+        }
+    }
+
     if ($raw[0] === '/') {
         return home_url($raw);
     }
