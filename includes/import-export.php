@@ -6,6 +6,10 @@ if (!defined('ABSPATH')) exit;
  * ----------------------------------------------------------- */
 
 const EMWAS_IMPORT_TOKEN_TTL = 3600; // 1 hour
+const EMWAS_IMPORT_PREVIEW_ROWS = 20;
+const EMWAS_IMPORT_LOG = true;
+const EMWAS_IMPORT_LOG_STORE = true;
+const EMWAS_IMPORT_LOG_MAX = 500;
 
 add_action('admin_menu', function(){
     add_submenu_page(
@@ -21,6 +25,7 @@ add_action('admin_menu', function(){
 add_action('admin_post_emwas_export_csv', 'emwas_handle_export_csv');
 add_action('admin_post_emwas_upload_csv', 'emwas_handle_upload_csv');
 add_action('admin_post_emwas_import_csv', 'emwas_handle_import_csv');
+add_action('admin_post_emwas_clear_import_log', 'emwas_handle_clear_import_log');
 
 function emwas_render_import_export_page(){
     if (!current_user_can('manage_options')) {
@@ -29,6 +34,8 @@ function emwas_render_import_export_page(){
 
     $token = isset($_GET['emwas_import_token']) ? sanitize_text_field(wp_unslash($_GET['emwas_import_token'])) : '';
     $import_data = $token ? get_transient('emwas_import_'.$token) : false;
+    $preview = $token ? get_transient('emwas_import_preview_'.$token) : false;
+    $preview_map = $token ? get_transient('emwas_import_preview_map_'.$token) : false;
 
     $result = get_transient('emwas_import_result');
     if ($result) {
@@ -58,7 +65,7 @@ function emwas_render_import_export_page(){
           $headers = $import_data['headers'];
           $sample  = $import_data['sample'] ?? [];
           $saved_map = get_option('emwas_import_mapping', []);
-          $auto_map  = emwas_guess_mapping($headers, $saved_map);
+          $auto_map  = ($preview_map !== false) ? $preview_map : emwas_guess_mapping($headers, $saved_map);
           $fields    = emwas_get_import_fields();
         ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -105,7 +112,51 @@ function emwas_render_import_export_page(){
             </label>
           </p>
 
-          <?php submit_button('Run Import', 'primary'); ?>
+          <?php if ($preview !== false): ?>
+            <?php
+              $preview_rows = (is_array($preview) && isset($preview['rows'])) ? $preview['rows'] : [];
+              $preview_limit = (is_array($preview) && isset($preview['limit'])) ? (int)$preview['limit'] : EMWAS_IMPORT_PREVIEW_ROWS;
+              $mapped_fields = [];
+              foreach ($fields as $key => $label) {
+                  if (in_array($key, $auto_map, true)) {
+                      $mapped_fields[$key] = $label;
+                  }
+              }
+            ?>
+            <h3>Preview</h3>
+            <p>Showing first <?php echo esc_html($preview_limit); ?> row(s) after mapping. Nothing has been imported yet.</p>
+
+            <?php if (empty($mapped_fields)): ?>
+              <p><em>No mapped fields selected.</em></p>
+            <?php elseif (empty($preview_rows)): ?>
+              <p><em>No preview rows found.</em></p>
+            <?php else: ?>
+              <table class="widefat striped">
+                <thead>
+                  <tr>
+                    <?php foreach ($mapped_fields as $key => $label): ?>
+                      <th><?php echo esc_html($label); ?></th>
+                    <?php endforeach; ?>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($preview_rows as $prow): ?>
+                    <tr>
+                      <?php foreach ($mapped_fields as $key => $label): ?>
+                        <?php $cell = emwas_preview_value($prow[$key] ?? ''); ?>
+                        <td><?php echo esc_html($cell); ?></td>
+                      <?php endforeach; ?>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            <?php endif; ?>
+          <?php endif; ?>
+
+          <p>
+            <?php submit_button('Preview', 'secondary', 'emwas_preview', false); ?>
+            <?php submit_button('Run Import', 'primary', 'submit', false); ?>
+          </p>
         </form>
       <?php else: ?>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data">
@@ -115,6 +166,51 @@ function emwas_render_import_export_page(){
           <?php submit_button('Upload CSV'); ?>
         </form>
       <?php endif; ?>
+
+      <hr>
+
+      <h2>Import Log</h2>
+      <p>Recent import activity (newest first).</p>
+      <?php
+        $log = get_option('emwas_import_log', []);
+        if (!is_array($log)) $log = [];
+        $log = array_reverse($log);
+        $log = array_slice($log, 0, 100);
+      ?>
+      <?php if (empty($log)): ?>
+        <p><em>No log entries yet.</em></p>
+      <?php else: ?>
+        <table class="widefat striped">
+          <thead>
+            <tr>
+              <th style="width:20%">Time</th>
+              <th style="width:30%">Message</th>
+              <th>Context</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($log as $entry): ?>
+              <?php
+                $ts = isset($entry['time']) ? (int)$entry['time'] : 0;
+                $msg = $entry['message'] ?? '';
+                $ctx = $entry['context'] ?? [];
+                if (!is_array($ctx)) $ctx = [];
+              ?>
+              <tr>
+                <td><?php echo esc_html($ts ? wp_date('Y-m-d H:i:s', $ts) : ''); ?></td>
+                <td><?php echo esc_html($msg); ?></td>
+                <td><code><?php echo esc_html(wp_json_encode($ctx)); ?></code></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+
+      <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+        <?php wp_nonce_field('emwas_clear_import_log','emwas_clear_log_nonce'); ?>
+        <input type="hidden" name="action" value="emwas_clear_import_log">
+        <?php submit_button('Clear Log', 'secondary', 'submit', false); ?>
+      </form>
     </div>
     <?php
 }
@@ -435,6 +531,149 @@ function emwas_normalize_media_url($raw){
     return home_url('/'.ltrim($raw, '/'));
 }
 
+function emwas_import_log($message, array $context = []){
+    if (!EMWAS_IMPORT_LOG) return;
+    $line = '[EMWAS Import] '.$message;
+    if (!empty($context)) {
+        $line .= ' | '.wp_json_encode($context);
+    }
+    error_log($line);
+
+    if (EMWAS_IMPORT_LOG_STORE) {
+        $log = get_option('emwas_import_log', []);
+        if (!is_array($log)) $log = [];
+        $log[] = [
+            'time' => time(),
+            'message' => $message,
+            'context' => $context,
+        ];
+        if (count($log) > EMWAS_IMPORT_LOG_MAX) {
+            $log = array_slice($log, -EMWAS_IMPORT_LOG_MAX);
+        }
+        update_option('emwas_import_log', $log, false);
+    }
+}
+
+function emwas_local_file_from_url($url){
+    $uploads = wp_upload_dir();
+    $baseurl = rtrim((string)$uploads['baseurl'], '/');
+    $basedir = rtrim((string)$uploads['basedir'], DIRECTORY_SEPARATOR);
+
+    if ($baseurl === '' || $basedir === '' || strpos($url, $baseurl) !== 0) {
+        return '';
+    }
+
+    $rel = ltrim(substr($url, strlen($baseurl)), '/');
+    if ($rel === '') return '';
+    $file = $basedir.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $rel);
+    return file_exists($file) ? $file : '';
+}
+
+function emwas_create_attachment_from_file($file_path, $post_id, $desc = ''){
+    if ($file_path === '' || !file_exists($file_path)) return 0;
+
+    require_once ABSPATH.'wp-admin/includes/image.php';
+
+    $filetype = wp_check_filetype(basename($file_path), null);
+    $attachment = [
+        'post_mime_type' => $filetype['type'] ?? '',
+        'post_title'     => $desc !== '' ? $desc : sanitize_file_name(pathinfo($file_path, PATHINFO_FILENAME)),
+        'post_content'   => '',
+        'post_status'    => 'inherit',
+    ];
+
+    $attach_id = wp_insert_attachment($attachment, $file_path, $post_id);
+    if (is_wp_error($attach_id) || !$attach_id) {
+        return 0;
+    }
+
+    $metadata = wp_generate_attachment_metadata($attach_id, $file_path);
+    if (!is_wp_error($metadata)) {
+        wp_update_attachment_metadata($attach_id, $metadata);
+    }
+    return (int)$attach_id;
+}
+
+function emwas_sideload_media($url, $post_id, $desc = ''){
+    require_once ABSPATH.'wp-admin/includes/file.php';
+    require_once ABSPATH.'wp-admin/includes/media.php';
+    require_once ABSPATH.'wp-admin/includes/image.php';
+
+    $tmp = download_url($url, 60);
+    if (is_wp_error($tmp)) {
+        emwas_import_log('Media download failed', ['url' => $url, 'error' => $tmp->get_error_message()]);
+        return 0;
+    }
+
+    $name = basename(parse_url($url, PHP_URL_PATH) ?: 'media-file');
+    $file_array = [
+        'name'     => $name,
+        'tmp_name' => $tmp,
+    ];
+
+    $sideload = wp_handle_sideload($file_array, ['test_form' => false]);
+    if (!empty($sideload['error'])) {
+        @unlink($tmp);
+        emwas_import_log('Media sideload failed', ['url' => $url, 'error' => $sideload['error']]);
+        return 0;
+    }
+
+    $attachment = [
+        'post_mime_type' => $sideload['type'],
+        'post_title'     => $desc !== '' ? $desc : sanitize_file_name(pathinfo($sideload['file'], PATHINFO_FILENAME)),
+        'post_content'   => '',
+        'post_status'    => 'inherit',
+    ];
+
+    $attach_id = wp_insert_attachment($attachment, $sideload['file'], $post_id);
+    if (is_wp_error($attach_id) || !$attach_id) {
+        emwas_import_log('Attachment insert failed', ['url' => $url]);
+        return 0;
+    }
+
+    $metadata = wp_generate_attachment_metadata($attach_id, $sideload['file']);
+    if (!is_wp_error($metadata)) {
+        wp_update_attachment_metadata($attach_id, $metadata);
+    }
+
+    return (int)$attach_id;
+}
+
+function emwas_ensure_attachment_id($raw_url, $post_id, $desc = ''){
+    $url = emwas_normalize_media_url($raw_url);
+    if ($url === '') return 0;
+    $url = esc_url_raw($url);
+
+    $existing = attachment_url_to_postid($url);
+    if ($existing) return (int)$existing;
+
+    $local = emwas_local_file_from_url($url);
+    if ($local) {
+        $id = emwas_create_attachment_from_file($local, $post_id, $desc);
+        if ($id) {
+            emwas_import_log('Attached local media', ['url' => $url, 'attachment_id' => $id]);
+            return $id;
+        }
+    }
+
+    $id = emwas_sideload_media($url, $post_id, $desc);
+    if ($id) {
+        emwas_import_log('Sideloaded media', ['url' => $url, 'attachment_id' => $id]);
+    }
+    return $id;
+}
+
+function emwas_set_author_thumbnail_from_url($author_id, $image_url){
+    if ($image_url === '') return false;
+    $fid = emwas_ensure_attachment_id($image_url, $author_id, 'Author image');
+    if ($fid) {
+        set_post_thumbnail($author_id, $fid);
+        return true;
+    }
+    emwas_import_log('Author image not found', ['author_id' => $author_id, 'url' => $image_url]);
+    return false;
+}
+
 function emwas_get_section_maps(){
     static $cache = null;
     if (is_array($cache)) return $cache;
@@ -591,6 +830,12 @@ function emwas_handle_import_csv(){
         update_option('emwas_import_mapping', $map);
     }
 
+    emwas_import_log('Import started', [
+        'path' => $path,
+        'headers' => count($headers),
+        'mapped_fields' => array_values(array_filter($map)),
+    ]);
+
     $fh = fopen($path, 'r');
     if (!$fh) {
         wp_die('Could not open CSV file.');
@@ -643,6 +888,8 @@ function emwas_handle_import_csv(){
     delete_transient('emwas_import_'.$token);
     @unlink($path);
 
+    emwas_import_log('Import finished', $counts);
+
     $msg = sprintf(
         'Import complete. Rows processed: %d. Journals created: %d. Entries added: %d. Authors matched: %d. Authors missing: %d. Authors created: %d.',
         $counts['rows'],
@@ -654,6 +901,19 @@ function emwas_handle_import_csv(){
     );
     set_transient('emwas_import_result', $msg, EMWAS_IMPORT_TOKEN_TTL);
 
+    $url = add_query_arg(['post_type' => 'journal', 'page' => 'emwa-journal-import-export'], admin_url('edit.php'));
+    wp_safe_redirect($url);
+    exit;
+}
+
+function emwas_handle_clear_import_log(){
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+    if (!isset($_POST['emwas_clear_log_nonce']) || !wp_verify_nonce($_POST['emwas_clear_log_nonce'], 'emwas_clear_import_log')) {
+        wp_die('Invalid nonce');
+    }
+    update_option('emwas_import_log', [], false);
     $url = add_query_arg(['post_type' => 'journal', 'page' => 'emwa-journal-import-export'], admin_url('edit.php'));
     wp_safe_redirect($url);
     exit;
@@ -715,8 +975,7 @@ function emwas_update_journal_meta($post_id, array $vals){
         update_post_meta($post_id, '_emwas_month_year', $my);
     }
     if (isset($vals['full_issue_pdf_url']) && $vals['full_issue_pdf_url'] !== '') {
-        $url = emwas_normalize_media_url($vals['full_issue_pdf_url']);
-        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
+        $fid = emwas_ensure_attachment_id($vals['full_issue_pdf_url'], $post_id, 'Full issue PDF');
         if ($fid) {
             update_post_meta($post_id, '_emwas_full_issue_file_id', (int)$fid);
         }
@@ -815,8 +1074,7 @@ function emwas_add_entry_from_row($post_id, array $vals, array &$counts){
     }
 
     if (!empty($vals['entry_pdf_url'])) {
-        $url = emwas_normalize_media_url($vals['entry_pdf_url']);
-        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
+        $fid = emwas_ensure_attachment_id($vals['entry_pdf_url'], $post_id, 'Entry PDF');
         if ($fid) $entry['file_id'] = (int)$fid;
     }
 
@@ -892,11 +1150,7 @@ function emwas_create_author_from_row($name, $slug, $title, $image_url){
     }
 
     if ($image_url !== '') {
-        $url = emwas_normalize_media_url($image_url);
-        $fid = $url ? attachment_url_to_postid(esc_url_raw($url)) : 0;
-        if ($fid) {
-            set_post_thumbnail($new_id, $fid);
-        }
+        emwas_set_author_thumbnail_from_url($new_id, $image_url);
     }
 
     if ($cache_key) $cache[$cache_key] = $new_id;
